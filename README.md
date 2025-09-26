@@ -1,6 +1,7 @@
 # Shellfish Environmental Monitor (Mock)
 
 Ready-to-commit Vite + React (TypeScript) with Tailwind CSS, minimal local UI components, Recharts, and a GitHub Pages workflow.
+
 Configured for GitHub Pages at **https://sr320.github.io/m2m-dashboard/**.
 
 ## Quickstart
