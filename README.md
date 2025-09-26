@@ -5,6 +5,8 @@ Ready-to-commit Vite + React (TypeScript) with Tailwind CSS, minimal local UI co
 Configured for GitHub Pages at **https://sr320.github.io/m2m-dashboard/**.
 
 ## Quickstart
+
+
 ```bash
 npm i
 npm run dev
