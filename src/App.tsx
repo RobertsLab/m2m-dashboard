@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Download, Bell, MapPin, Activity, Clock, RefreshCw, Satellite } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 
-type ParamKey = "temp" | "sal" | "ph" | "do" | "turb" | "chl";
+type ParamKey = "temp" | "sal" | "ph" | "do" | "turb" | "chl" | "gene_expr" | "methyl" | "metabo" | "lipid_ox";
 
 type Reading = {
   ts: number;
@@ -19,6 +19,10 @@ type Reading = {
   do: number;
   turb: number;
   chl: number;
+  gene_expr: number; // HAB-related toxin gene expression (AU)
+  methyl: number;    // Epigenetic stress methylation fraction (0-1)
+  metabo: number;    // Oxidative/toxin metabolite index (AU)
+  lipid_ox: number;  // Lipid oxidation ratio (0-1)
 };
 
 type Site = {
@@ -44,6 +48,10 @@ const THRESHOLDS: Record<ParamKey, { warn: number; crit: number; dir: "over" | "
     do:   { warn: 6.0, crit: 4.0, dir: "under" },
     turb: { warn: 50, crit: 150, dir: "over" },
     chl:  { warn: 15, crit: 40, dir: "over" },
+    gene_expr: { warn: 40, crit: 70, dir: "over" },
+    methyl:    { warn: 0.55, crit: 0.7, dir: "over" },
+    metabo:    { warn: 50, crit: 75, dir: "over" },
+    lipid_ox:  { warn: 0.35, crit: 0.55, dir: "over" },
   };
 
 const fmttime = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -75,6 +83,10 @@ function generateSeeded(start: number): Reading {
     do:   7 + Math.random() * 2,
     turb: 10 + Math.random() * 25,
     chl:  3 + Math.random() * 10,
+    gene_expr: 20 + Math.random() * 20,
+    methyl: 0.4 + Math.random() * 0.1,
+    metabo: 20 + Math.random() * 20,
+    lipid_ox: 0.25 + Math.random() * 0.1,
   };
 }
 
@@ -87,11 +99,19 @@ function tick(prev: Reading, ts: number): Reading {
     do:   randomWalk(prev.do, 0.4, 1.5, 12),
     turb: randomWalk(prev.turb, 6, 1, 300),
     chl:  randomWalk(prev.chl, 3, 0.1, 120),
+    gene_expr: randomWalk(prev.gene_expr, 4, 0, 100),
+    methyl:    randomWalk(prev.methyl, 0.03, 0, 1),
+    metabo:    randomWalk(prev.metabo, 5, 0, 100),
+    lipid_ox:  randomWalk(prev.lipid_ox, 0.03, 0, 1),
   };
 }
 
 function toCSV(rows: Reading[]): string {
-  const header = ["timestamp", "time_local", "temp_c", "sal_psu", "ph", "do_mgL", "turb_ntu", "chl_ugL"].join(",");
+  const header = [
+    "timestamp", "time_local",
+    "temp_c", "sal_psu", "ph", "do_mgL", "turb_ntu", "chl_ugL",
+    "gene_expr_AU", "methyl_frac", "metabo_AU", "lipid_ox_frac"
+  ].join(",");
   const lines = rows.map(r => [
     r.ts,
     new Date(r.ts).toISOString(),
@@ -101,6 +121,10 @@ function toCSV(rows: Reading[]): string {
     r.do.toFixed(2),
     r.turb.toFixed(1),
     r.chl.toFixed(1),
+    r.gene_expr.toFixed(1),
+    r.methyl.toFixed(3),
+    r.metabo.toFixed(1),
+    r.lipid_ox.toFixed(3),
   ].join(","));
   return [header, ...lines].join("\n");
 }
@@ -200,7 +224,7 @@ export default function App() {
 
   const alerts = useMemo(() => {
     if (!latest) return [] as { key: ParamKey; level: "warn"|"crit"; value: number }[];
-    const keys: ParamKey[] = ["temp","sal","ph","do","turb","chl"];
+    const keys: ParamKey[] = ["temp","sal","ph","do","turb","chl","gene_expr","methyl","metabo","lipid_ox"];
     return keys
       .map(k => ({ key: k, level: classifyAlert(k, (latest as any)[k] as number), value: (latest as any)[k] as number }))
       .filter(a => a.level !== "ok")
@@ -214,6 +238,10 @@ export default function App() {
     do: { label: "Dissolved O₂", unit: "mg/L" },
     turb: { label: "Turbidity", unit: "NTU" },
     chl: { label: "Chlorophyll‑a", unit: "µg/L" },
+    gene_expr: { label: "HAB gene expression", unit: "AU" },
+    methyl: { label: "Stress methylation", unit: "" },
+    metabo: { label: "Toxin metabolites", unit: "AU" },
+    lipid_ox: { label: "Lipid oxidation", unit: "" },
   };
 
   function exportCSV() {
@@ -316,6 +344,10 @@ export default function App() {
                       { value: "do", label: "Dissolved O₂" },
                       { value: "turb", label: "Turbidity" },
                       { value: "chl", label: "Chlorophyll‑a" },
+                      { value: "gene_expr", label: "HAB gene expression" },
+                      { value: "methyl", label: "Stress methylation" },
+                      { value: "metabo", label: "Toxin metabolites" },
+                      { value: "lipid_ox", label: "Lipid oxidation" },
                     ]}
                     className="w-44"
                   />
@@ -354,6 +386,32 @@ export default function App() {
             </CardContent>
           </Card>
 
+          <Card className="rounded-2xl">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 font-medium"><Activity className="h-4 w-4"/> Environmental BioIndicators</div>
+              {latest && (
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                  {(["gene_expr","methyl","metabo","lipid_ox"] as ParamKey[]).map(k => (
+                    <div key={k} className={`p-2 rounded-xl border ${showParam===k?"border-sky-300 bg-sky-50":"border-slate-200"}`}>
+                      <div className="text-xs mb-1 flex items-center justify-between">
+                        <span>{paramMeta[k].label}</span>
+                        <span className="opacity-60 tabular-nums">{latest ? (latest as any)[k].toFixed(2) : "—"} {paramMeta[k].unit}</span>
+                      </div>
+                      <ResponsiveContainer width="100%" height={56}>
+                        <AreaChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                          <XAxis dataKey="ts" hide domain={["dataMin", "dataMax"]} type="number"/>
+                          <YAxis hide/>
+                          <Tooltip formatter={(v:any)=>Number(v).toFixed(2)} labelFormatter={(l:any)=>new Date(l).toLocaleString()} />
+                          <Area type="monotone" dataKey={k} strokeWidth={2} fillOpacity={0.1} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList>
               <TabsTrigger value="thresholds" activeValue={activeTab} onClick={()=>setActiveTab("thresholds")}>Thresholds</TabsTrigger>
@@ -364,7 +422,7 @@ export default function App() {
                 <CardContent className="p-4">
                   <div className="text-sm opacity-80 mb-3">Customize alert thresholds (mock; non‑persistent).</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-                    {(["temp","sal","ph","do","turb","chl"] as ParamKey[]).map(k => (
+                    {(["temp","sal","ph","do","turb","chl","gene_expr","methyl","metabo","lipid_ox"] as ParamKey[]).map(k => (
                       <div key={k} className="space-y-2 p-3 rounded-xl border">
                         <div className="text-sm font-medium">{paramMeta[k].label}</div>
                         <div className="grid grid-cols-2 gap-2 items-center">
@@ -395,9 +453,18 @@ export default function App() {
                 <CardContent className="p-4 space-y-2 text-sm">
                   <p>
                     This mockup simulates a real‑time data stream for coastal aquaculture sites
-                    (temperature, salinity, pH, dissolved oxygen, turbidity, chlorophyll‑a).
+                    (temperature, salinity, pH, dissolved oxygen, turbidity, chlorophyll‑a), plus environmental
+                    bioindicators: harmful algal bloom gene expression (AU), DNA methylation stress fraction, toxin
+                    metabolite index (AU), and lipid oxidation ratio.
                     Replace the generator with your telemetry API or WebSocket.
                   </p>
+                 <p className="opacity-80">How to interpret bioindicators (mock guidance):</p>
+                 <ul className="list-disc ml-5 space-y-1">
+                   <li><strong>HAB gene expression:</strong> higher values suggest emerging algal bloom potential; consider increased sampling or harvest holds.</li>
+                   <li><strong>Stress methylation:</strong> elevated fractions indicate chronic environmental stress (temperature, hypoxia, acidification).</li>
+                   <li><strong>Toxin metabolites:</strong> rising index can reflect exposure to algal or microbial toxins; monitor product safety plans.</li>
+                   <li><strong>Lipid oxidation:</strong> higher ratios indicate oxidative stress impacting shellfish condition and shelf life.</li>
+                 </ul>
                   <ul className="list-disc ml-5 space-y-1">
                     <li><strong>Live stream:</strong> togglable; updates every 5 s.</li>
                     <li><strong>Alerts:</strong> driven by editable thresholds (non‑persistent here).</li>
